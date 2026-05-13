@@ -1,0 +1,12 @@
+{
+  "name": "wantedly-automate",
+  "version": "1.0.0",
+  "main": "wantedly-automate.js",
+  "scripts": {
+    "start": "node wantedly-automate.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0"
+  }
+}
