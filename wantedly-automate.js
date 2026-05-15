@@ -515,12 +515,12 @@ async function login(page, email, password) {
 
   try {
     await delay(2000);
-    await page.waitForSelector('input[type="password"]', { timeout: 15000 });
+    await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 15000 });
   } catch (error) {
     throw new Error('パスワード入力欄の検出に失敗しました: ' + error.message);
   }
 
-  const passwordInput = await page.$('input[type="password"]');
+  const passwordInput = await page.$('input[type="password"]') || await page.$('input[name="password"]');
   if (!passwordInput) {
     throw new Error('パスワード入力欄が見つかりません');
   }
@@ -631,8 +631,8 @@ async function loginWithDiagnostics(page, email, password, send) {
   await page.keyboard.press('Enter');
   send('log', { text: '  ・パスワード入力欄を待機します' });
   await delay(2000);
-  await page.waitForSelector('input[type="password"]', { timeout: 15000 });
-  const passwordInput = await page.$('input[type="password"]');
+  await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 15000 });
+  const passwordInput = await page.$('input[type="password"]') || await page.$('input[name="password"]');
   send('log', { text: '  ・パスワード送信後の遷移を待機します' });
   await passwordInput.click({ clickCount: 3 });
   await passwordInput.type(password, { delay: 50 });
