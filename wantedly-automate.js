@@ -8,6 +8,15 @@ puppeteer.use(StealthPlugin());
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function withTimeout(promise, ms, message) {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+}
+
 function parseBoolean(value, fallback = false) {
   if (value === undefined) return fallback;
   return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
@@ -783,16 +792,27 @@ async function loginWithRetry(page, email, password, send, maxAttempts = 2) {
 }
 
 async function cheerProject(page, url, send) {
-  await gotoWantedlyPage(page, url);
+  send('log', { text: '  ・募集ページを開きます' });
+  await withTimeout(
+    gotoWantedlyPage(page, url),
+    45000,
+    '募集ページの読み込みが45秒以内に完了しませんでした'
+  );
+  send('log', { text: '  ・募集ページに到達しました: ' + page.url() });
 
   if (page.url().includes('/signin_or_signup')) {
     throw new Error('未ログイン状態のため、募集ページへ遷移できませんでした');
   }
 
+  send('log', { text: '  ・応援するボタンを探します' });
   let cheerButton = null;
   for (let i = 0; i < 10; i++) {
-    cheerButton = (await page.evaluateHandle(() =>
-      Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '応援する')
+    cheerButton = (await withTimeout(
+      page.evaluateHandle(() =>
+        Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '応援する')
+      ),
+      5000,
+      '応援するボタンの探索がタイムアウトしました'
     )).asElement();
     if (cheerButton) break;
     await delay(500);
@@ -805,27 +825,42 @@ async function cheerProject(page, url, send) {
     throw new Error('応援するボタンが見つかりません。ボタン一覧: ' + buttons.join(' / '));
   }
 
+  send('log', { text: '  ・応援するボタンをクリックします' });
   await page.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }), cheerButton);
   await delay(300);
-  await page.evaluate(el => el.click(), cheerButton);
+  await withTimeout(
+    page.evaluate(el => el.click(), cheerButton),
+    10000,
+    '応援するボタンのクリックがタイムアウトしました'
+  );
   await delay(2000);
 
   // Facebook シェアリンクを検索（href 優先、なければテキスト/aria-label で探す）
-  const facebookButton = (await page.evaluateHandle(() => {
-    const byHref = document.querySelector('a[href*="facebook.com"]');
-    if (byHref) return byHref;
-    return Array.from(document.querySelectorAll('button, a, [role="button"]')).find(el =>
-      el.textContent.includes('Facebook') ||
-      (el.getAttribute('aria-label') || '').includes('Facebook') ||
-      (el.getAttribute('title') || '').includes('Facebook')
-    );
-  })).asElement();
+  send('log', { text: '  ・Facebookシェアボタンを探します' });
+  const facebookButton = (await withTimeout(
+    page.evaluateHandle(() => {
+      const byHref = document.querySelector('a[href*="facebook.com"]');
+      if (byHref) return byHref;
+      return Array.from(document.querySelectorAll('button, a, [role="button"]')).find(el =>
+        el.textContent.includes('Facebook') ||
+        (el.getAttribute('aria-label') || '').includes('Facebook') ||
+        (el.getAttribute('title') || '').includes('Facebook')
+      );
+    }),
+    10000,
+    'Facebookシェアボタンの探索がタイムアウトしました'
+  )).asElement();
 
   if (!facebookButton) {
     throw new Error('Facebookシェアボタンが見つかりません');
   }
 
-  await facebookButton.click();
+  send('log', { text: '  ・Facebookシェアを開きます' });
+  await withTimeout(
+    facebookButton.click(),
+    10000,
+    'Facebookシェアボタンのクリックがタイムアウトしました'
+  );
   await delay(2000);
 
   for (const currentPage of await page.browser().pages()) {
@@ -836,8 +871,12 @@ async function cheerProject(page, url, send) {
   }
 
   await delay(1000);
-  const closeButton = (await page.evaluateHandle(() =>
-    Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '閉じる')
+  const closeButton = (await withTimeout(
+    page.evaluateHandle(() =>
+      Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '閉じる')
+    ),
+    5000,
+    '閉じるボタンの探索がタイムアウトしました'
   )).asElement();
   if (closeButton) await closeButton.click();
 
