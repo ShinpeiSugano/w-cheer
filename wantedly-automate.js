@@ -777,7 +777,12 @@ async function cheerProject(page, url) {
   const facebookButton = (await page.evaluateHandle(() =>
     Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Facebook') && el.textContent.includes('応援'))
   )).asElement();
-  if (!facebookButton) return 'not_found';
+  if (!facebookButton) {
+    const modalButtons = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('button, a')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 20)
+    );
+    throw new Error('Facebook応援ボタンが見つかりません。ページ上のボタン: ' + modalButtons.join(' / '));
+  }
 
   await facebookButton.click();
   await delay(2000);
