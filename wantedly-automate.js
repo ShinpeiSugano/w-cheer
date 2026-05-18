@@ -553,7 +553,7 @@ function cookieHeadersToPuppeteer(cookieHeaders) {
   });
 }
 
-async function setupGraphqlProxy(page, cookieHeaders) {
+async function setupGraphqlProxy(page, cookieHeaders, send) {
   const cookieString = parseCookies(cookieHeaders);
   await page.setRequestInterception(true);
   page.on('request', async request => {
@@ -575,7 +575,8 @@ async function setupGraphqlProxy(page, cookieHeaders) {
         ? JSON.stringify(axiosRes.data)
         : String(axiosRes.data);
       await request.respond({ status: axiosRes.status, body });
-    } catch {
+    } catch (err) {
+      send('log', { text: '  ⚠️ GraphQL proxy 失敗: ' + String(err.message).slice(0, 120) });
       try { await request.abort(); } catch {}
     }
   });
@@ -781,14 +782,15 @@ async function loginWithRetry(page, email, password, send, maxAttempts = 2) {
   }
 }
 
-async function cheerProject(page, url) {
+async function cheerProject(page, url, send) {
   await gotoWantedlyPage(page, url);
 
   if (page.url().includes('/signin_or_signup')) {
     throw new Error('未ログイン状態のため、募集ページへ遷移できませんでした');
   }
 
-  // GraphQL が失敗して React が再描画する前に素早くクリックする
+  send('log', { text: '  ・ページ読み込み完了: ' + page.url() });
+
   let cheerButton = null;
   for (let i = 0; i < 10; i++) {
     cheerButton = (await page.evaluateHandle(() =>
@@ -805,12 +807,31 @@ async function cheerProject(page, url) {
     throw new Error('応援するボタンが見つかりません。ボタン一覧: ' + buttons.join(' / '));
   }
 
-  await cheerButton.click();
-  await delay(3000);
+  send('log', { text: '  ・応援するボタン発見、スクロール後クリックします' });
+  await page.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }), cheerButton);
+  await delay(300);
+  await page.evaluate(el => el.click(), cheerButton);
 
-  // Facebook ボタンを探す（テキストに "Facebook" が含まれるもの）
+  send('log', { text: '  ・クリック完了、1秒後の状態を確認...' });
+  await delay(1000);
+
+  const state = await page.evaluate(() => ({
+    url: location.href,
+    dialogs: document.querySelectorAll('[role="dialog"]').length,
+    modals: document.querySelectorAll('[class*="modal"], [class*="Modal"], [class*="overlay"], [class*="Overlay"]').length,
+    buttons: Array.from(document.querySelectorAll('button, a'))
+      .map(el => el.textContent.trim()).filter(t => t.length > 0 && t.length < 60).slice(0, 30),
+  }));
+  send('log', { text: '  ・URL: ' + state.url });
+  send('log', { text: '  ・dialog=' + state.dialogs + ' modal=' + state.modals });
+  send('log', { text: '  ・ボタン: ' + state.buttons.join(' / ') });
+
+  await delay(2000);
+
   const facebookButton = (await page.evaluateHandle(() =>
-    Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Facebook'))
+    Array.from(document.querySelectorAll('button, a')).find(el =>
+      el.textContent.includes('Facebook') || el.textContent.includes('facebook')
+    )
   )).asElement();
 
   if (!facebookButton) {
@@ -889,7 +910,7 @@ async function runAutomation({ accounts, urls, send, automation }) {
         const cookieHeaders = await loginWithHttp(account.email, account.password);
         const puppeteerCookies = cookieHeadersToPuppeteer(cookieHeaders);
         await page.setCookie(...puppeteerCookies);
-        await setupGraphqlProxy(page, cookieHeaders);
+        await setupGraphqlProxy(page, cookieHeaders, send);
         send('log', { text: '✅ ログイン完了 (HTTP + GraphQL proxy): ' + account.email });
       } catch (httpError) {
         send('log', { text: '  ⚠️ HTTP ログイン失敗、ブラウザで再試行: ' + httpError.message });
@@ -904,7 +925,7 @@ async function runAutomation({ accounts, urls, send, automation }) {
       for (const url of urls) {
         send('log', { text: '📣 応援中: ' + url });
         try {
-          const result = await cheerProject(page, url);
+          const result = await cheerProject(page, url, send);
           send('log', { text: result === 'success' ? '  🎉 応援完了！' : '  ⚠️ ボタンが見つかりませんでした' });
           send('result', { data: { account: account.email, url, status: result } });
         } catch (error) {
