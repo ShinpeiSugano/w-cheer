@@ -508,7 +508,9 @@ async function loginWithHttp(email, password) {
   const csrfMatch = pageRes.data.match(/<meta[^>]+name="csrf-token"[^>]+content="([^"]+)"/);
   if (!csrfMatch) throw new Error('CSRF トークンが見つかりませんでした');
   const csrfToken = csrfMatch[1];
-  const cookies = parseCookies(pageRes.headers['set-cookie']);
+
+  const pageCookieHeaders = pageRes.headers['set-cookie'] || [];
+  const cookieString = parseCookies(pageCookieHeaders);
 
   const loginRes = await axios.post(
     'https://www.wantedly.com/user/sign_in',
@@ -521,7 +523,7 @@ async function loginWithHttp(email, password) {
       headers: {
         ...HTTP_HEADERS,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': cookies,
+        'Cookie': cookieString,
         'Referer': 'https://www.wantedly.com/signin_or_signup',
         'Origin': 'https://www.wantedly.com',
       },
@@ -530,12 +532,25 @@ async function loginWithHttp(email, password) {
     }
   );
 
-  const sessionCookies = parseCookies(loginRes.headers['set-cookie']);
-  if (!sessionCookies && loginRes.status === 401) {
+  if (loginRes.status === 401) {
     throw new Error('メールアドレスまたはパスワードが違います');
   }
 
-  return cookies + '; ' + sessionCookies;
+  const allCookieHeaders = [...pageCookieHeaders, ...(loginRes.headers['set-cookie'] || [])];
+  return allCookieHeaders;
+}
+
+function cookieHeadersToPuppeteer(cookieHeaders) {
+  return cookieHeaders.flatMap(header => {
+    const parts = header.split(';').map(s => s.trim());
+    const [name, ...valueParts] = parts[0].split('=');
+    const value = valueParts.join('=');
+    if (!name) return [];
+    const cookie = { name: name.trim(), value, domain: '.wantedly.com', path: '/' };
+    const pathPart = parts.find(p => p.toLowerCase().startsWith('path='));
+    if (pathPart) cookie.path = pathPart.split('=')[1] || '/';
+    return [cookie];
+  });
 }
 
 async function login(page, email, password) {
@@ -823,12 +838,22 @@ async function runAutomation({ accounts, urls, send, automation }) {
     await automation.withPage(async page => {
       attachPageDiagnostics(page, send, account.email);
       send('log', { text: '🔑 ログイン中: ' + account.email });
-      await loginWithRetry(page, account.email, account.password, send)
-        .catch(async diagnosticError => {
-          send('log', { text: '  ⚠️ 詳細ログ取得付きログインで失敗: ' + diagnosticError.message });
-          await login(page, account.email, account.password);
-        });
-      send('log', { text: '✅ ログイン完了: ' + account.email });
+
+      try {
+        send('log', { text: '  ・HTTP でログインを試みます' });
+        const cookieHeaders = await loginWithHttp(account.email, account.password);
+        const puppeteerCookies = cookieHeadersToPuppeteer(cookieHeaders);
+        await page.setCookie(...puppeteerCookies);
+        send('log', { text: '✅ ログイン完了 (HTTP): ' + account.email });
+      } catch (httpError) {
+        send('log', { text: '  ⚠️ HTTP ログイン失敗、ブラウザで再試行: ' + httpError.message });
+        await loginWithRetry(page, account.email, account.password, send)
+          .catch(async diagnosticError => {
+            send('log', { text: '  ⚠️ 詳細ログ取得付きログインで失敗: ' + diagnosticError.message });
+            await login(page, account.email, account.password);
+          });
+        send('log', { text: '✅ ログイン完了: ' + account.email });
+      }
 
       for (const url of urls) {
         send('log', { text: '📣 応援中: ' + url });
