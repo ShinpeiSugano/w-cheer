@@ -24,6 +24,7 @@ function createConfig(env = process.env) {
     headless: parseBoolean(env.HEADLESS, nodeEnv === 'production'),
     autoOpenBrowser: parseBoolean(env.AUTO_OPEN_BROWSER, nodeEnv !== 'production'),
     chromeExecutablePath: env.CHROME_EXECUTABLE_PATH || '',
+    proxyServer: env.PROXY_SERVER || '',
   };
 
   if (config.requireAuth && (!config.basicAuthUser || !config.basicAuthPass)) {
@@ -738,6 +739,7 @@ function createAutomationRuntime(config) {
           '--disable-dev-shm-usage',
           '--disable-gpu',
           '--disable-blink-features=AutomationControlled',
+          ...(config.proxyServer ? [`--proxy-server=${config.proxyServer}`] : []),
         ],
       };
 
