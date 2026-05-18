@@ -857,11 +857,7 @@ async function cheerProject(page, url, send) {
 
   send('log', { text: '  ・Facebookシェアを開きます' });
   const pagesBeforeFacebookClick = await page.browser().pages();
-  await withTimeout(
-    page.evaluate(el => el.click(), facebookButton),
-    10000,
-    'Facebookシェアボタンのクリックがタイムアウトしました'
-  );
+  await triggerAsyncClick(page, facebookButton, 'Facebookシェアボタン');
   await waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick, send);
 
   await delay(1000);
@@ -883,6 +879,26 @@ async function cheerProject(page, url, send) {
   }
 
   return 'success';
+}
+
+async function triggerAsyncClick(page, elementHandle, label) {
+  const clicked = await withTimeout(
+    page.evaluate(el => {
+      setTimeout(() => {
+        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        el.click();
+      }, 0);
+      return true;
+    }, elementHandle),
+    3000,
+    label + 'のクリック開始がタイムアウトしました'
+  ).catch(() => false);
+
+  if (!clicked) {
+    throw new Error(label + 'のクリック開始に失敗しました');
+  }
 }
 
 async function waitForFacebookPage(browser, knownPages, timeoutMs = 15000) {
