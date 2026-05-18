@@ -755,33 +755,41 @@ async function loginWithRetry(page, email, password, send, maxAttempts = 2) {
 
 async function cheerProject(page, url) {
   await gotoWantedlyPage(page, url);
-  await delay(2000);
+
   if (page.url().includes('/signin_or_signup')) {
     throw new Error('未ログイン状態のため、募集ページへ遷移できませんでした');
   }
 
-  const cheerButton = (await page.evaluateHandle(() =>
-    Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '応援する')
-  )).asElement();
+  // GraphQL が失敗して React が再描画する前に素早くクリックする
+  let cheerButton = null;
+  for (let i = 0; i < 10; i++) {
+    cheerButton = (await page.evaluateHandle(() =>
+      Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '応援する')
+    )).asElement();
+    if (cheerButton) break;
+    await delay(500);
+  }
+
   if (!cheerButton) {
-    const pageInfo = await page.evaluate(() => ({
-      url: location.href,
-      buttons: Array.from(document.querySelectorAll('button')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 10),
-    }));
-    throw new Error('応援するボタンが見つかりません。URL: ' + pageInfo.url + ' / ボタン一覧: ' + pageInfo.buttons.join(', '));
+    const buttons = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('button')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 10)
+    );
+    throw new Error('応援するボタンが見つかりません。ボタン一覧: ' + buttons.join(' / '));
   }
 
   await cheerButton.click();
-  await delay(2000);
+  await delay(3000);
 
+  // Facebook ボタンを探す（テキストに "Facebook" が含まれるもの）
   const facebookButton = (await page.evaluateHandle(() =>
-    Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Facebook') && el.textContent.includes('応援'))
+    Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Facebook'))
   )).asElement();
+
   if (!facebookButton) {
-    const modalButtons = await page.evaluate(() =>
+    const buttons = await page.evaluate(() =>
       Array.from(document.querySelectorAll('button, a')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 20)
     );
-    throw new Error('Facebook応援ボタンが見つかりません。ページ上のボタン: ' + modalButtons.join(' / '));
+    throw new Error('Facebookボタンが見つかりません。ボタン一覧: ' + buttons.join(' / '));
   }
 
   await facebookButton.click();
