@@ -874,6 +874,14 @@ async function cheerProject(page, url, send) {
   )).asElement();
   if (closeButton) await closeButton.click();
 
+  send('log', { text: '  ・応援状態を確認します' });
+  send('log', { text: '  ・募集ページを更新します' });
+  await gotoWantedlyPage(page, url);
+  const cheered = await waitForCheeredState(page, 20000);
+  if (!cheered) {
+    throw new Error('募集ページ更新後も「応援しました」を確認できませんでした');
+  }
+
   return 'success';
 }
 
@@ -909,9 +917,56 @@ async function waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick,
     'Facebookシェア画面への遷移を確認できませんでした'
   );
 
-  send('log', { text: '  ・Facebookシェア画面への遷移を確認しました: ' + facebookPage.url() });
+  const firstFacebookUrl = facebookPage.url();
+  send('log', { text: '  ・Facebookシェア画面を確認しました: ' + firstFacebookUrl });
+
+  send('log', { text: '  ・Facebook share_channel 到達を待ちます' });
+  const shareChannelUrl = await waitForFacebookShareChannel(facebookPage, firstFacebookUrl, 20000);
+  if (!shareChannelUrl) {
+    await facebookPage.close().catch(() => {});
+    await page.bringToFront().catch(() => {});
+    throw new Error('Facebook share_channel への到達を確認できませんでした');
+  }
+
+  send('log', { text: '  ・Facebook share_channel 到達を確認しました: ' + shareChannelUrl });
   await facebookPage.close().catch(() => {});
   await page.bringToFront().catch(() => {});
+}
+
+async function waitForFacebookShareChannel(facebookPage, firstUrl, timeoutMs) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (facebookPage.isClosed()) return 'closed';
+    const currentUrl = facebookPage.url();
+    if (
+      currentUrl &&
+      currentUrl !== 'about:blank' &&
+      currentUrl.includes('facebook.com') &&
+      (currentUrl.includes('/share_channel') || currentUrl !== firstUrl)
+    ) {
+      return currentUrl;
+    }
+    await delay(500);
+  }
+
+  return '';
+}
+
+async function waitForCheeredState(page, timeoutMs) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const cheered = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('button, a, [role="button"]')).some(el =>
+        el.textContent.trim() === '応援しました'
+      )
+    ).catch(() => false);
+    if (cheered) return true;
+    await delay(1000);
+  }
+
+  return false;
 }
 
 function createAutomationRuntime(config) {
