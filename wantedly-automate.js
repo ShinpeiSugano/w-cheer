@@ -562,39 +562,61 @@ function cookieHeadersToPuppeteer(cookieHeaders) {
   });
 }
 
+async function proxyViaNode(url, method, headers, body, cookieString) {
+  const res = await axios({
+    method: method.toLowerCase(),
+    url,
+    headers: { ...HTTP_HEADERS, ...headers, cookie: cookieString },
+    data: body || undefined,
+    timeout: 20000,
+    validateStatus: () => true,
+  });
+  return {
+    status: res.status,
+    contentType: res.headers['content-type'] || 'text/html; charset=utf-8',
+    body: typeof res.data === 'object' ? JSON.stringify(res.data) : String(res.data),
+  };
+}
+
 async function setupGraphqlProxy(page, cookieHeaders, send) {
   const cookieString = parseCookies(cookieHeaders);
   await page.setRequestInterception(true);
   page.on('request', async request => {
     const url = request.url();
-    if (!url.includes('graphql-gateway.wantedly.com')) {
+    const type = request.resourceType();
+
+    // ブラウザの TLS フィンガープリントが Cloudflare に弾かれるため
+    // www.wantedly.com への document/xhr/fetch は Node.js 経由でプロキシ
+    if (url.includes('www.wantedly.com') && (type === 'document' || type === 'xhr' || type === 'fetch')) {
       try {
-        // wantedly.com リクエストにはセッションクッキーを明示的に付与
-        if (url.includes('wantedly.com')) {
-          await request.continue({ headers: { ...request.headers(), cookie: cookieString } });
-        } else {
-          await request.continue();
-        }
-      } catch {}
+        const proxied = await proxyViaNode(url, request.method(), {}, request.postData(), cookieString);
+        await request.respond(proxied);
+      } catch {
+        try { await request.continue({ headers: { ...request.headers(), cookie: cookieString } }); } catch {}
+      }
       return;
     }
-    try {
-      const axiosRes = await axios({
-        method: request.method().toLowerCase(),
-        url,
-        headers: { ...request.headers(), cookie: cookieString },
-        data: request.postData() || undefined,
-        timeout: 15000,
-        validateStatus: () => true,
-      });
-      const body = typeof axiosRes.data === 'object'
-        ? JSON.stringify(axiosRes.data)
-        : String(axiosRes.data);
-      await request.respond({ status: axiosRes.status, body });
-    } catch (err) {
-      send('log', { text: '  ⚠️ GraphQL proxy 失敗: ' + String(err.message).slice(0, 120) });
-      try { await request.abort(); } catch {}
+
+    // graphql-gateway も同様にプロキシ
+    if (url.includes('graphql-gateway.wantedly.com')) {
+      try {
+        const proxied = await proxyViaNode(url, request.method(), request.headers(), request.postData(), cookieString);
+        await request.respond(proxied);
+      } catch (err) {
+        send('log', { text: '  ⚠️ GraphQL proxy 失敗: ' + String(err.message).slice(0, 120) });
+        try { await request.abort(); } catch {}
+      }
+      return;
     }
+
+    // その他の wantedly.com リクエスト（JS/CSS/画像等）はクッキー付きでそのまま通す
+    try {
+      if (url.includes('wantedly.com')) {
+        await request.continue({ headers: { ...request.headers(), cookie: cookieString } });
+      } else {
+        await request.continue();
+      }
+    } catch {}
   });
 }
 
