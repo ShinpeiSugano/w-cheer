@@ -857,7 +857,7 @@ async function cheerProject(page, url, send) {
 
   send('log', { text: '  ・Facebookシェアを開きます' });
   await withTimeout(
-    facebookButton.click(),
+    page.evaluate(el => el.click(), facebookButton),
     10000,
     'Facebookシェアボタンのクリックがタイムアウトしました'
   );
