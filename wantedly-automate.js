@@ -855,6 +855,13 @@ function createAutomationRuntime(config) {
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-crash-reporter',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
           '--disable-blink-features=AutomationControlled',
           ...(config.proxyServer ? [`--proxy-server=${config.proxyServer}`] : []),
         ],
@@ -865,14 +872,25 @@ function createAutomationRuntime(config) {
       }
 
       const browser = await puppeteer.launch(launchOptions);
-      const page = await browser.newPage();
-      page.setDefaultNavigationTimeout(45000);
-      page.setDefaultTimeout(20000);
-      await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-      await page.setViewport({ width: 1280, height: 800 });
-      await page.evaluateOnNewDocument(() => {
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-      });
+      let page;
+      try {
+        page = await browser.newPage();
+        page.setDefaultNavigationTimeout(45000);
+        page.setDefaultTimeout(20000);
+        await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setViewport({ width: 1280, height: 800 });
+        await page.evaluateOnNewDocument(() => {
+          Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        });
+      } catch (error) {
+        await browser.close().catch(() => {});
+        if (String(error?.message || '').includes('Target closed')) {
+          throw new Error(
+            'Chromium がページ初期化中に終了しました。Render のメモリ不足または Chromium 起動制約の可能性があります: ' + error.message
+          );
+        }
+        throw error;
+      }
 
       try {
         return await task(page);
