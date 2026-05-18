@@ -789,8 +789,6 @@ async function cheerProject(page, url, send) {
     throw new Error('未ログイン状態のため、募集ページへ遷移できませんでした');
   }
 
-  send('log', { text: '  ・ページ読み込み完了: ' + page.url() });
-
   let cheerButton = null;
   for (let i = 0; i < 10; i++) {
     cheerButton = (await page.evaluateHandle(() =>
@@ -807,24 +805,12 @@ async function cheerProject(page, url, send) {
     throw new Error('応援するボタンが見つかりません。ボタン一覧: ' + buttons.join(' / '));
   }
 
-  send('log', { text: '  ・応援するボタン発見、スクロール後クリックします' });
   await page.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }), cheerButton);
   await delay(300);
   await page.evaluate(el => el.click(), cheerButton);
-
-  send('log', { text: '  ・クリック完了、2秒待機...' });
   await delay(2000);
 
-  // 可視モーダルの内容を確認
-  const modalInfo = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('[class*="modal"], [class*="Modal"]'))
-      .filter(el => el.offsetHeight > 0 && el.textContent.trim().length > 5)
-      .map(el => el.textContent.trim().slice(0, 120))
-      .slice(0, 5)
-  );
-  send('log', { text: '  ・表示中モーダル: ' + (modalInfo.length ? modalInfo.join(' || ') : 'なし') });
-
-  // Facebook 要素をあらゆる手段で検索
+  // Facebook シェアリンクを検索（href 優先、なければテキスト/aria-label で探す）
   const facebookButton = (await page.evaluateHandle(() => {
     const byHref = document.querySelector('a[href*="facebook.com"]');
     if (byHref) return byHref;
@@ -836,13 +822,7 @@ async function cheerProject(page, url, send) {
   })).asElement();
 
   if (!facebookButton) {
-    const fbSearch = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('*'))
-        .filter(el => el.children.length < 3 && el.textContent.trim().length < 80 && el.textContent.includes('Facebook'))
-        .slice(0, 5)
-        .map(el => el.tagName + '[' + (el.className || '').slice(0, 30) + '] ' + el.textContent.trim().slice(0, 40))
-    );
-    throw new Error('Facebookボタンが見つかりません。FB要素: ' + (fbSearch.join(' | ') || 'なし'));
+    throw new Error('Facebookシェアボタンが見つかりません');
   }
 
   await facebookButton.click();
