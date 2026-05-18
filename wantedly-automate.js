@@ -921,11 +921,19 @@ async function waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick,
   send('log', { text: '  ・Facebookシェア画面を確認しました: ' + firstFacebookUrl });
 
   send('log', { text: '  ・Facebook share_channel 到達を待ちます' });
-  const shareChannelUrl = await waitForFacebookShareChannel(facebookPage, firstFacebookUrl, 20000);
+  const shareChannelUrl = await waitForFacebookShareChannel(facebookPage, firstFacebookUrl, 20000, send);
   if (!shareChannelUrl) {
+    const snapshot = await getFacebookPageSnapshot(facebookPage);
     await facebookPage.close().catch(() => {});
     await page.bringToFront().catch(() => {});
-    throw new Error('Facebook share_channel への到達を確認できませんでした');
+    throw new Error(
+      'Facebook share_channel への到達を確認できませんでした。現在URL: ' +
+      snapshot.url +
+      ' / title: ' +
+      snapshot.title +
+      ' / buttons: ' +
+      (snapshot.buttons || 'なし')
+    );
   }
 
   send('log', { text: '  ・Facebook share_channel 到達を確認しました: ' + shareChannelUrl });
@@ -933,12 +941,17 @@ async function waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick,
   await page.bringToFront().catch(() => {});
 }
 
-async function waitForFacebookShareChannel(facebookPage, firstUrl, timeoutMs) {
+async function waitForFacebookShareChannel(facebookPage, firstUrl, timeoutMs, send) {
   const startedAt = Date.now();
+  let lastLoggedUrl = '';
 
   while (Date.now() - startedAt < timeoutMs) {
     if (facebookPage.isClosed()) return 'closed';
     const currentUrl = facebookPage.url();
+    if (currentUrl && currentUrl !== lastLoggedUrl) {
+      lastLoggedUrl = currentUrl;
+      send('log', { text: '  ・Facebook現在URL: ' + currentUrl });
+    }
     if (
       currentUrl &&
       currentUrl !== 'about:blank' &&
@@ -951,6 +964,20 @@ async function waitForFacebookShareChannel(facebookPage, firstUrl, timeoutMs) {
   }
 
   return '';
+}
+
+async function getFacebookPageSnapshot(facebookPage) {
+  const url = facebookPage.url();
+  const title = await facebookPage.title().catch(() => '');
+  const buttons = await facebookPage.evaluate(() =>
+    Array.from(document.querySelectorAll('button, a, [role="button"], input[type="submit"]'))
+      .map(el => (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim())
+      .filter(Boolean)
+      .slice(0, 12)
+      .join(' / ')
+  ).catch(() => '');
+
+  return { url, title, buttons };
 }
 
 async function waitForCheeredState(page, timeoutMs) {
