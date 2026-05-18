@@ -730,7 +730,13 @@ function createAutomationRuntime(config) {
       const preferredExecutablePath = getPreferredChromeExecutablePath(config);
       const launchOptions = {
         headless: config.headless,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-blink-features=AutomationControlled',
+        ],
       };
 
       if (preferredExecutablePath) {
@@ -741,7 +747,11 @@ function createAutomationRuntime(config) {
       const page = await browser.newPage();
       page.setDefaultNavigationTimeout(45000);
       page.setDefaultTimeout(20000);
-      await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36');
+      await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      await page.setViewport({ width: 1280, height: 800 });
+      await page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      });
 
       try {
         return await task(page);
