@@ -1,6 +1,7 @@
 const http = require('http');
 const { exec } = require('child_process');
 const fs = require('fs');
+const axios = require('axios');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
@@ -484,6 +485,57 @@ function validateRunPayload(body) {
   });
 
   return { accounts, urls };
+}
+
+const HTTP_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+};
+
+function parseCookies(setCookieHeaders) {
+  if (!setCookieHeaders) return '';
+  const headers = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+  return headers.map(c => c.split(';')[0]).join('; ');
+}
+
+async function loginWithHttp(email, password) {
+  const pageRes = await axios.get('https://www.wantedly.com/signin_or_signup', {
+    headers: HTTP_HEADERS,
+    maxRedirects: 5,
+  });
+
+  const csrfMatch = pageRes.data.match(/<meta[^>]+name="csrf-token"[^>]+content="([^"]+)"/);
+  if (!csrfMatch) throw new Error('CSRF トークンが見つかりませんでした');
+  const csrfToken = csrfMatch[1];
+  const cookies = parseCookies(pageRes.headers['set-cookie']);
+
+  const loginRes = await axios.post(
+    'https://www.wantedly.com/user/sign_in',
+    new URLSearchParams({
+      'user[email]': email,
+      'user[password]': password,
+      'authenticity_token': csrfToken,
+    }).toString(),
+    {
+      headers: {
+        ...HTTP_HEADERS,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': cookies,
+        'Referer': 'https://www.wantedly.com/signin_or_signup',
+        'Origin': 'https://www.wantedly.com',
+      },
+      maxRedirects: 5,
+      validateStatus: s => s < 500,
+    }
+  );
+
+  const sessionCookies = parseCookies(loginRes.headers['set-cookie']);
+  if (!sessionCookies && loginRes.status === 401) {
+    throw new Error('メールアドレスまたはパスワードが違います');
+  }
+
+  return cookies + '; ' + sessionCookies;
 }
 
 async function login(page, email, password) {
