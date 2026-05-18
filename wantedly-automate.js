@@ -763,7 +763,13 @@ async function cheerProject(page, url) {
   const cheerButton = (await page.evaluateHandle(() =>
     Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '応援する')
   )).asElement();
-  if (!cheerButton) return 'not_found';
+  if (!cheerButton) {
+    const pageInfo = await page.evaluate(() => ({
+      url: location.href,
+      buttons: Array.from(document.querySelectorAll('button')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 10),
+    }));
+    throw new Error('応援するボタンが見つかりません。URL: ' + pageInfo.url + ' / ボタン一覧: ' + pageInfo.buttons.join(', '));
+  }
 
   await cheerButton.click();
   await delay(2000);
