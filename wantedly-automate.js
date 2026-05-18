@@ -812,33 +812,37 @@ async function cheerProject(page, url, send) {
   await delay(300);
   await page.evaluate(el => el.click(), cheerButton);
 
-  send('log', { text: '  ・クリック完了、1秒後の状態を確認...' });
-  await delay(1000);
-
-  const state = await page.evaluate(() => ({
-    url: location.href,
-    dialogs: document.querySelectorAll('[role="dialog"]').length,
-    modals: document.querySelectorAll('[class*="modal"], [class*="Modal"], [class*="overlay"], [class*="Overlay"]').length,
-    buttons: Array.from(document.querySelectorAll('button, a'))
-      .map(el => el.textContent.trim()).filter(t => t.length > 0 && t.length < 60).slice(0, 30),
-  }));
-  send('log', { text: '  ・URL: ' + state.url });
-  send('log', { text: '  ・dialog=' + state.dialogs + ' modal=' + state.modals });
-  send('log', { text: '  ・ボタン: ' + state.buttons.join(' / ') });
-
+  send('log', { text: '  ・クリック完了、2秒待機...' });
   await delay(2000);
 
-  const facebookButton = (await page.evaluateHandle(() =>
-    Array.from(document.querySelectorAll('button, a')).find(el =>
-      el.textContent.includes('Facebook') || el.textContent.includes('facebook')
-    )
-  )).asElement();
+  // 可視モーダルの内容を確認
+  const modalInfo = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[class*="modal"], [class*="Modal"]'))
+      .filter(el => el.offsetHeight > 0 && el.textContent.trim().length > 5)
+      .map(el => el.textContent.trim().slice(0, 120))
+      .slice(0, 5)
+  );
+  send('log', { text: '  ・表示中モーダル: ' + (modalInfo.length ? modalInfo.join(' || ') : 'なし') });
+
+  // Facebook 要素をあらゆる手段で検索
+  const facebookButton = (await page.evaluateHandle(() => {
+    const byHref = document.querySelector('a[href*="facebook.com"]');
+    if (byHref) return byHref;
+    return Array.from(document.querySelectorAll('button, a, [role="button"]')).find(el =>
+      el.textContent.includes('Facebook') ||
+      (el.getAttribute('aria-label') || '').includes('Facebook') ||
+      (el.getAttribute('title') || '').includes('Facebook')
+    );
+  })).asElement();
 
   if (!facebookButton) {
-    const buttons = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('button, a')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 20)
+    const fbSearch = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('*'))
+        .filter(el => el.children.length < 3 && el.textContent.trim().length < 80 && el.textContent.includes('Facebook'))
+        .slice(0, 5)
+        .map(el => el.tagName + '[' + (el.className || '').slice(0, 30) + '] ' + el.textContent.trim().slice(0, 40))
     );
-    throw new Error('Facebookボタンが見つかりません。ボタン一覧: ' + buttons.join(' / '));
+    throw new Error('Facebookボタンが見つかりません。FB要素: ' + (fbSearch.join(' | ') || 'なし'));
   }
 
   await facebookButton.click();
