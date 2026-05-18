@@ -907,17 +907,21 @@ function createRequestHandler({
     if (req.method === 'GET' && requestUrl.pathname === '/test-wantedly') {
       try {
         const https = require('https');
-        const status = await new Promise((resolve, reject) => {
-          const r = https.get('https://www.wantedly.com/signin_or_signup', {
+        const checkUrl = async url => new Promise((resolve, reject) => {
+          const r = https.get(url, {
             headers: {
               'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
               'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
             },
           }, res => resolve(res.statusCode));
-          r.on('error', reject);
+          r.on('error', err => resolve('error: ' + err.message));
         });
-        sendJson(res, 200, { status, blocked: status === 403 });
+        const [wwwStatus, graphqlStatus] = await Promise.all([
+          checkUrl('https://www.wantedly.com/signin_or_signup'),
+          checkUrl('https://graphql-gateway.wantedly.com/graphql'),
+        ]);
+        sendJson(res, 200, { www: wwwStatus, graphql: graphqlStatus });
       } catch (error) {
         sendJson(res, 200, { error: error.message });
       }
