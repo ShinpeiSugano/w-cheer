@@ -553,6 +553,34 @@ function cookieHeadersToPuppeteer(cookieHeaders) {
   });
 }
 
+async function setupGraphqlProxy(page, cookieHeaders) {
+  const cookieString = parseCookies(cookieHeaders);
+  await page.setRequestInterception(true);
+  page.on('request', async request => {
+    const url = request.url();
+    if (!url.includes('graphql-gateway.wantedly.com')) {
+      try { await request.continue(); } catch {}
+      return;
+    }
+    try {
+      const axiosRes = await axios({
+        method: request.method().toLowerCase(),
+        url,
+        headers: { ...request.headers(), cookie: cookieString },
+        data: request.postData() || undefined,
+        timeout: 15000,
+        validateStatus: () => true,
+      });
+      const body = typeof axiosRes.data === 'object'
+        ? JSON.stringify(axiosRes.data)
+        : String(axiosRes.data);
+      await request.respond({ status: axiosRes.status, body });
+    } catch {
+      try { await request.abort(); } catch {}
+    }
+  });
+}
+
 async function login(page, email, password) {
   const maskedEmail = email.replace(/(^.).+(@.*$)/, '$1***$2');
 
@@ -861,7 +889,8 @@ async function runAutomation({ accounts, urls, send, automation }) {
         const cookieHeaders = await loginWithHttp(account.email, account.password);
         const puppeteerCookies = cookieHeadersToPuppeteer(cookieHeaders);
         await page.setCookie(...puppeteerCookies);
-        send('log', { text: '✅ ログイン完了 (HTTP): ' + account.email });
+        await setupGraphqlProxy(page, cookieHeaders);
+        send('log', { text: '✅ ログイン完了 (HTTP + GraphQL proxy): ' + account.email });
       } catch (httpError) {
         send('log', { text: '  ⚠️ HTTP ログイン失敗、ブラウザで再試行: ' + httpError.message });
         await loginWithRetry(page, account.email, account.password, send)
