@@ -837,66 +837,54 @@ async function cheerProject(page, url, send) {
   }
 
   send('log', { text: '  ・応援するボタンを探します' });
-  let cheerButton = null;
+  // 探索・スクロール・座標取得を1回の evaluate にまとめ stale reference を回避
+  let cheerCoords = null;
   for (let i = 0; i < 20; i++) {
-    cheerButton = (await withTimeout(
-      page.evaluateHandle(() => {
-        const normalize = value => value.replace(/\s+/g, '').trim();
-        const isVisible = el => {
-          const rect = el.getBoundingClientRect();
-          const style = getComputedStyle(el);
-          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
-        };
-        const allElements = Array.from(document.querySelectorAll('button, a, [role="button"], div, span, h1, h2, h3'));
-        const supportHeading = allElements
-          .filter(isVisible)
-          .find(el => normalize(el.textContent || '') === '募集の応援');
-        const candidates = allElements
-          .filter(isVisible)
-          .filter(el => normalize(el.textContent || '') === '応援する')
-          .map(el => el.closest('button, a, [role="button"]') || el)
-          .filter((el, index, array) => array.indexOf(el) === index);
+    cheerCoords = await page.evaluate(() => {
+      const normalize = v => v.replace(/\s+/g, '').trim();
+      const isVisible = el => {
+        const r = el.getBoundingClientRect();
+        const s = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none';
+      };
+      const all = Array.from(document.querySelectorAll('button, a, [role="button"], div, span, h1, h2, h3'));
+      const heading = all.filter(isVisible).find(el => normalize(el.textContent || '') === '募集の応援');
+      const candidates = all
+        .filter(isVisible)
+        .filter(el => normalize(el.textContent || '') === '応援する')
+        .map(el => el.closest('button, a, [role="button"]') || el)
+        .filter((el, i, arr) => arr.indexOf(el) === i);
 
-        if (!candidates.length) return null;
-        if (!supportHeading) return candidates[0];
+      if (!candidates.length) return null;
 
-        const headingRect = supportHeading.getBoundingClientRect();
-        const belowHeading = candidates
-          .map(el => ({ el, rect: el.getBoundingClientRect() }))
-          .filter(({ rect }) => rect.top >= headingRect.bottom && rect.top <= headingRect.bottom + 500)
-          .sort((a, b) => a.rect.top - b.rect.top);
+      let target = candidates[0];
+      if (heading) {
+        const hr = heading.getBoundingClientRect();
+        const below = candidates
+          .map(el => ({ el, r: el.getBoundingClientRect() }))
+          .filter(({ r }) => r.top >= hr.bottom && r.top <= hr.bottom + 500)
+          .sort((a, b) => a.r.top - b.r.top);
+        if (below.length) target = below[0].el;
+      }
 
-        return belowHeading[0]?.el || candidates[0];
-      }),
-      5000,
-      '応援するボタンの探索がタイムアウトしました'
-    )).asElement();
-    if (cheerButton) break;
+      target.scrollIntoView({ behavior: 'instant', block: 'center' });
+      const rect = target.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }).catch(() => null);
+    if (cheerCoords) break;
     await delay(500);
   }
 
-  if (!cheerButton) {
-    const snapshot = await page.evaluate(() => {
-      const interactiveTexts = Array.from(document.querySelectorAll('button, a, [role="button"]'))
-        .map(el => el.textContent.trim())
-        .filter(Boolean)
-        .slice(0, 20)
-        .join(' / ');
-      const bodySnippet = (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 500);
-      return { interactiveTexts, bodySnippet };
-    }).catch(() => ({ interactiveTexts: '', bodySnippet: '' }));
-    throw new Error(
-      '応援するボタンが見つかりません。ボタン一覧: ' +
-      (snapshot.interactiveTexts || 'なし') +
-      ' / ページ本文: ' +
-      (snapshot.bodySnippet || '取得できませんでした')
-    );
+  if (!cheerCoords) {
+    const buttons = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('button, a')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 20).join(' / ')
+    ).catch(() => '');
+    throw new Error('応援するボタンが見つかりません: ' + (buttons || 'なし'));
   }
 
   send('log', { text: '  ・応援するボタンをクリックします' });
-  await page.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }), cheerButton);
   await delay(300);
-  await cheerButton.click();
+  await page.mouse.click(cheerCoords.x, cheerCoords.y);
   await delay(2000);
 
   // クリック後のモーダル内容をログ
