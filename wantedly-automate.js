@@ -806,11 +806,15 @@ async function cheerProject(page, url, send) {
 
   send('log', { text: '  ・応援するボタンを探します' });
   let cheerButton = null;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
     cheerButton = (await withTimeout(
-      page.evaluateHandle(() =>
-        Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '応援する')
-      ),
+      page.evaluateHandle(() => {
+        const normalize = value => value.replace(/\s+/g, '').trim();
+        const elements = Array.from(document.querySelectorAll('button, a, [role="button"], div, span'));
+        const match = elements.find(el => normalize(el.textContent || '') === '応援する');
+        if (!match) return null;
+        return match.closest('button, a, [role="button"]') || match;
+      }),
       5000,
       '応援するボタンの探索がタイムアウトしました'
     )).asElement();
@@ -819,10 +823,21 @@ async function cheerProject(page, url, send) {
   }
 
   if (!cheerButton) {
-    const buttons = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('button')).map(el => el.textContent.trim()).filter(Boolean).slice(0, 10)
+    const snapshot = await page.evaluate(() => {
+      const interactiveTexts = Array.from(document.querySelectorAll('button, a, [role="button"]'))
+        .map(el => el.textContent.trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .join(' / ');
+      const bodySnippet = (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+      return { interactiveTexts, bodySnippet };
+    }).catch(() => ({ interactiveTexts: '', bodySnippet: '' }));
+    throw new Error(
+      '応援するボタンが見つかりません。ボタン一覧: ' +
+      (snapshot.interactiveTexts || 'なし') +
+      ' / ページ本文: ' +
+      (snapshot.bodySnippet || '取得できませんでした')
     );
-    throw new Error('応援するボタンが見つかりません。ボタン一覧: ' + buttons.join(' / '));
   }
 
   send('log', { text: '  ・応援するボタンをクリックします' });
