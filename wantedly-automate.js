@@ -810,10 +810,31 @@ async function cheerProject(page, url, send) {
     cheerButton = (await withTimeout(
       page.evaluateHandle(() => {
         const normalize = value => value.replace(/\s+/g, '').trim();
-        const elements = Array.from(document.querySelectorAll('button, a, [role="button"], div, span'));
-        const match = elements.find(el => normalize(el.textContent || '') === '応援する');
-        if (!match) return null;
-        return match.closest('button, a, [role="button"]') || match;
+        const isVisible = el => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+        };
+        const allElements = Array.from(document.querySelectorAll('button, a, [role="button"], div, span, h1, h2, h3'));
+        const supportHeading = allElements
+          .filter(isVisible)
+          .find(el => normalize(el.textContent || '') === '募集の応援');
+        const candidates = allElements
+          .filter(isVisible)
+          .filter(el => normalize(el.textContent || '') === '応援する')
+          .map(el => el.closest('button, a, [role="button"]') || el)
+          .filter((el, index, array) => array.indexOf(el) === index);
+
+        if (!candidates.length) return null;
+        if (!supportHeading) return candidates[0];
+
+        const headingRect = supportHeading.getBoundingClientRect();
+        const belowHeading = candidates
+          .map(el => ({ el, rect: el.getBoundingClientRect() }))
+          .filter(({ rect }) => rect.top >= headingRect.bottom && rect.top <= headingRect.bottom + 500)
+          .sort((a, b) => a.rect.top - b.rect.top);
+
+        return belowHeading[0]?.el || candidates[0];
       }),
       5000,
       '応援するボタンの探索がタイムアウトしました'
@@ -852,54 +873,68 @@ async function cheerProject(page, url, send) {
 
   // Facebook シェアリンクを検索（href 優先、なければテキスト/aria-label で探す）
   send('log', { text: '  ・Facebookシェアボタンを探します' });
-  const facebookTarget = await withTimeout(
-    findFacebookShareTarget(page),
-    10000,
-    'Facebookシェアボタンの探索がタイムアウトしました'
-  );
+  const facebookTarget = await waitForFacebookShareTarget(page, 15000);
 
   if (!facebookTarget) {
-    throw new Error('Facebookシェアボタンが見つかりません');
+    const snapshot = await getWantedlyShareModalSnapshot(page);
+    throw new Error(
+      'Facebookシェアボタンが見つかりません。候補: ' +
+      (snapshot.candidates || 'なし') +
+      ' / ページ本文: ' +
+      (snapshot.bodySnippet || '取得できませんでした')
+    );
   }
 
-  send('log', { text: '  ・Facebookシェアを開きます' });
-  const pagesBeforeFacebookClick = await page.browser().pages();
-  await openFacebookShareTarget(page, facebookTarget);
-  await waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick, send);
-
-  await delay(1000);
-  const closeButton = (await withTimeout(
-    page.evaluateHandle(() =>
-      Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '閉じる')
-    ),
-    5000,
-    '閉じるボタンの探索がタイムアウトしました'
-  )).asElement();
-  if (closeButton) await closeButton.click();
-
-  send('log', { text: '  ・応援状態を確認します' });
-  send('log', { text: '  ・募集ページを更新します' });
-  await gotoWantedlyPage(page, url);
-  const cheered = await waitForCheeredState(page, 20000);
-  if (!cheered) {
-    throw new Error('募集ページ更新後も「応援しました」を確認できませんでした');
+  send('log', { text: '  ・Facebookシェアをクリックします' });
+  if (facebookTarget.href && facebookTarget.href.includes('facebook.com')) {
+    const fbPage = await page.browser().newPage();
+    await fbPage.goto(facebookTarget.href, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+    await delay(1000);
+    await fbPage.close().catch(() => {});
+  } else {
+    await withTimeout(
+      page.mouse.click(facebookTarget.x, facebookTarget.y, { delay: 50 }),
+      5000,
+      'Facebookボタンクリックがタイムアウトしました'
+    );
+    await delay(2000);
+    for (const p of await page.browser().pages()) {
+      if (p !== page && p.url().includes('facebook.com')) {
+        await p.close().catch(() => {});
+        break;
+      }
+    }
   }
 
   return 'success';
 }
 
+async function waitForFacebookShareTarget(page, timeoutMs) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const target = await findFacebookShareTarget(page).catch(() => null);
+    if (target) return target;
+    await delay(500);
+  }
+
+  return null;
+}
+
 async function findFacebookShareTarget(page) {
   return page.evaluate(() => {
-    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], div, span'));
     const getText = el => (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
-    const target = candidates.find(el => getText(el).replace(/\s+/g, '').includes('Facebookで応援')) ||
+    const rawTarget = candidates.find(el => getText(el).replace(/\s+/g, '').includes('Facebookで応援')) ||
       candidates.find(el => getText(el).includes('Facebook') && getText(el).includes('応援')) ||
       candidates.find(el => {
         const href = el.getAttribute('href') || '';
         return href.includes('facebook.com') && (href.includes('share') || href.includes('sharer'));
       });
 
-    if (!target) return null;
+    if (!rawTarget) return null;
+
+    const target = rawTarget.closest('button, a, [role="button"]') || rawTarget;
 
     const rect = target.getBoundingClientRect();
     return {
@@ -911,6 +946,18 @@ async function findFacebookShareTarget(page) {
       height: rect.height,
     };
   });
+}
+
+async function getWantedlyShareModalSnapshot(page) {
+  return page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], div, span'))
+      .map(el => (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim())
+      .filter(text => text && (text.includes('応援') || text.includes('Facebook') || text.includes('Instagram') || text.includes('X')))
+      .slice(0, 30)
+      .join(' / ');
+    const bodySnippet = (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 700);
+    return { candidates, bodySnippet };
+  }).catch(() => ({ candidates: '', bodySnippet: '' }));
 }
 
 async function openFacebookShareTarget(page, target) {
@@ -1064,8 +1111,6 @@ function createAutomationRuntime(config) {
           '--disable-background-networking',
           '--disable-crash-reporter',
           '--no-first-run',
-          '--no-zygote',
-          '--single-process',
           '--disable-blink-features=AutomationControlled',
           ...(config.proxyServer ? [`--proxy-server=${config.proxyServer}`] : []),
         ],
