@@ -891,20 +891,20 @@ async function cheerProject(page, url, send) {
 async function findFacebookShareTarget(page) {
   return page.evaluate(() => {
     const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
-    const target = candidates.find(el =>
-      (el.getAttribute('href') || '').includes('facebook.com')
-    ) || candidates.find(el =>
-      el.textContent.includes('Facebook') ||
-      (el.getAttribute('aria-label') || '').includes('Facebook') ||
-      (el.getAttribute('title') || '').includes('Facebook')
-    );
+    const getText = el => (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+    const target = candidates.find(el => getText(el).replace(/\s+/g, '').includes('Facebookで応援')) ||
+      candidates.find(el => getText(el).includes('Facebook') && getText(el).includes('応援')) ||
+      candidates.find(el => {
+        const href = el.getAttribute('href') || '';
+        return href.includes('facebook.com') && (href.includes('share') || href.includes('sharer'));
+      });
 
     if (!target) return null;
 
     const rect = target.getBoundingClientRect();
     return {
       href: target.href || target.getAttribute('href') || '',
-      text: (target.textContent || target.getAttribute('aria-label') || target.getAttribute('title') || '').trim(),
+      text: getText(target),
       x: rect.left + rect.width / 2,
       y: rect.top + rect.height / 2,
       width: rect.width,
@@ -914,7 +914,13 @@ async function findFacebookShareTarget(page) {
 }
 
 async function openFacebookShareTarget(page, target) {
-  if (target.href && target.href.includes('facebook.com')) {
+  const isShareUrl = target.href && target.href.includes('facebook.com') && (
+    target.href.includes('/share') ||
+    target.href.includes('/sharer') ||
+    target.href.includes('share_channel')
+  );
+
+  if (isShareUrl) {
     const facebookPage = await page.browser().newPage();
     await facebookPage.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 30000 });
     return;
