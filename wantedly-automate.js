@@ -857,7 +857,7 @@ async function cheerProject(page, url, send) {
 
   send('log', { text: '  ・Facebookシェアを開きます' });
   const pagesBeforeFacebookClick = await page.browser().pages();
-  await triggerFacebookShareClick(page);
+  await clickElementWithMouse(page, facebookButton, 'Facebookシェアボタン');
   await waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick, send);
 
   await delay(1000);
@@ -881,38 +881,21 @@ async function cheerProject(page, url, send) {
   return 'success';
 }
 
-async function triggerFacebookShareClick(page) {
-  const result = await withTimeout(
-    page.evaluate(() => {
-      const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
-      const button = candidates.find(el =>
-        el.textContent.includes('Facebook') ||
-        (el.getAttribute('aria-label') || '').includes('Facebook') ||
-        (el.getAttribute('title') || '').includes('Facebook') ||
-        (el.getAttribute('href') || '').includes('facebook.com')
-      );
-
-      if (!button) {
-        return { ok: false, reason: 'not_found' };
-      }
-
-      const label = (button.textContent || button.getAttribute('aria-label') || button.getAttribute('title') || '').trim();
-      setTimeout(() => {
-        button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
-        button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-        button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-        button.click();
-      }, 0);
-
-      return { ok: true, label };
-    }),
-    3000,
-    'Facebookシェアボタンのクリック開始がタイムアウトしました'
-  ).catch(error => ({ ok: false, reason: error.message }));
-
-  if (!result.ok) {
-    throw new Error('Facebookシェアボタンのクリック開始に失敗しました: ' + (result.reason || 'unknown'));
+async function clickElementWithMouse(page, elementHandle, label) {
+  const box = await withTimeout(
+    elementHandle.boundingBox(),
+    5000,
+    label + 'の位置取得がタイムアウトしました'
+  );
+  if (!box) {
+    throw new Error(label + 'の位置を取得できませんでした');
   }
+
+  await withTimeout(
+    page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { delay: 50 }),
+    5000,
+    label + 'のマウスクリックがタイムアウトしました'
+  );
 }
 
 async function waitForFacebookPage(browser, knownPages, timeoutMs = 15000) {
