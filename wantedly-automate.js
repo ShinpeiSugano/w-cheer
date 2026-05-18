@@ -1,7 +1,9 @@
 const http = require('http');
 const { exec } = require('child_process');
 const fs = require('fs');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -729,7 +731,7 @@ function createAutomationRuntime(config) {
     async withPage(task) {
       const preferredExecutablePath = getPreferredChromeExecutablePath(config);
       const launchOptions = {
-        headless: config.headless,
+        headless: config.headless ? 'new' : false,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
