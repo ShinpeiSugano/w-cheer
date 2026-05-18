@@ -494,7 +494,7 @@ async function login(page, email, password) {
 
   try {
     await delay(2000);
-    await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 15000 });
+    await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 30000 });
   } catch (error) {
     throw new Error('メールアドレス入力欄の検出に失敗しました: ' + error.message);
   }
@@ -515,7 +515,7 @@ async function login(page, email, password) {
 
   try {
     await delay(2000);
-    await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 15000 });
+    await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 30000 });
   } catch (error) {
     throw new Error('パスワード入力欄の検出に失敗しました: ' + error.message);
   }
@@ -622,7 +622,7 @@ async function loginWithDiagnostics(page, email, password, send) {
   await gotoWantedlyPage(page, 'https://www.wantedly.com/signin_or_signup');
   send('log', { text: '  ・メールアドレス入力欄を待機します' });
   await delay(2000);
-  await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 15000 });
+  await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 30000 });
   const emailInput = await page.$('input[type="email"]') || await page.$('input[name="email"]');
   send('log', { text: '  ・メールアドレスを送信します' });
   await emailInput.click({ clickCount: 3 });
@@ -631,7 +631,7 @@ async function loginWithDiagnostics(page, email, password, send) {
   await page.keyboard.press('Enter');
   send('log', { text: '  ・パスワード入力欄を待機します' });
   await delay(2000);
-  await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 15000 });
+  await page.waitForSelector('input[type="password"], input[name="password"]', { timeout: 30000 });
   const passwordInput = await page.$('input[type="password"]') || await page.$('input[name="password"]');
   send('log', { text: '  ・パスワード送信後の遷移を待機します' });
   await passwordInput.click({ clickCount: 3 });
