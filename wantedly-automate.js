@@ -581,6 +581,7 @@ async function waitForLoginTransition(page) {
 }
 
 async function gotoWantedlyPage(page, url) {
+  let navigationAborted = false;
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   } catch (error) {
@@ -589,11 +590,16 @@ async function gotoWantedlyPage(page, url) {
     if (!isAborted || !currentUrl.startsWith('https://www.wantedly.com/')) {
       throw error;
     }
+    navigationAborted = true;
   }
 
-  await page.waitForFunction(() => document.readyState === 'interactive' || document.readyState === 'complete', {
-    timeout: 30000,
-  });
+  // domcontentloaded が正常に完了した場合、readyState はすでに interactive/complete
+  // ERR_ABORTED（リダイレクト等）の場合のみ明示的に待機する
+  if (navigationAborted) {
+    await page.waitForFunction(() => document.readyState === 'interactive' || document.readyState === 'complete', {
+      timeout: 30000,
+    });
+  }
 }
 
 function attachPageDiagnostics(page, send, accountEmail) {
@@ -620,6 +626,7 @@ function attachPageDiagnostics(page, send, accountEmail) {
 async function loginWithDiagnostics(page, email, password, send) {
   send('log', { text: '  ・ログイン画面へ移動します' });
   await gotoWantedlyPage(page, 'https://www.wantedly.com/signin_or_signup');
+  send('log', { text: '  ・現在のURL: ' + page.url() });
   send('log', { text: '  ・メールアドレス入力欄を待機します' });
   await delay(2000);
   await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 30000 });
