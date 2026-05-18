@@ -882,23 +882,13 @@ async function cheerProject(page, url, send) {
   }
 
   send('log', { text: '  ・Facebookシェアをクリックします' });
-  if (facebookTarget.href && facebookTarget.href.includes('facebook.com')) {
-    const fbPage = await page.browser().newPage();
-    await fbPage.goto(facebookTarget.href, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
-    await delay(1000);
-    await fbPage.close().catch(() => {});
-  } else {
-    await withTimeout(
-      page.mouse.click(facebookTarget.x, facebookTarget.y, { delay: 50 }),
-      5000,
-      'Facebookボタンクリックがタイムアウトしました'
-    );
-    await delay(2000);
-    for (const p of await page.browser().pages()) {
-      if (p !== page && p.url().includes('facebook.com')) {
-        await p.close().catch(() => {});
-        break;
-      }
+  // ページ内ボタンをクリックして GraphQL mutation を発火（href を直接開くとチア未登録になる）
+  await page.mouse.click(facebookTarget.x, facebookTarget.y, { delay: 50 });
+  await delay(2000);
+  for (const p of await page.browser().pages()) {
+    if (p !== page && p.url().includes('facebook.com')) {
+      await p.close().catch(() => {});
+      break;
     }
   }
 
