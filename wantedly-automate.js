@@ -856,19 +856,13 @@ async function cheerProject(page, url, send) {
   }
 
   send('log', { text: '  ・Facebookシェアを開きます' });
+  const pagesBeforeFacebookClick = await page.browser().pages();
   await withTimeout(
     page.evaluate(el => el.click(), facebookButton),
     10000,
     'Facebookシェアボタンのクリックがタイムアウトしました'
   );
-  await delay(2000);
-
-  for (const currentPage of await page.browser().pages()) {
-    if (currentPage.url().includes('facebook.com')) {
-      await currentPage.close();
-      break;
-    }
-  }
+  await waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick, send);
 
   await delay(1000);
   const closeButton = (await withTimeout(
@@ -881,6 +875,43 @@ async function cheerProject(page, url, send) {
   if (closeButton) await closeButton.click();
 
   return 'success';
+}
+
+async function waitForFacebookPage(browser, knownPages, timeoutMs = 15000) {
+  const known = new Set(knownPages);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const pages = await browser.pages();
+    const facebookPage = pages.find(currentPage =>
+      !known.has(currentPage) && currentPage.url().includes('facebook.com')
+    ) || pages.find(currentPage => currentPage.url().includes('facebook.com'));
+    if (facebookPage) return facebookPage;
+    await delay(500);
+  }
+
+  return null;
+}
+
+async function waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick, send) {
+  const facebookPage = await waitForFacebookPage(page.browser(), pagesBeforeFacebookClick);
+  if (!facebookPage) {
+    throw new Error('Facebookシェア画面が開きませんでした');
+  }
+
+  await facebookPage.bringToFront().catch(() => {});
+  await withTimeout(
+    facebookPage.waitForFunction(
+      () => location.href !== 'about:blank' && location.href.includes('facebook.com'),
+      { timeout: 15000 }
+    ),
+    16000,
+    'Facebookシェア画面への遷移を確認できませんでした'
+  );
+
+  send('log', { text: '  ・Facebookシェア画面への遷移を確認しました: ' + facebookPage.url() });
+  await facebookPage.close().catch(() => {});
+  await page.bringToFront().catch(() => {});
 }
 
 function createAutomationRuntime(config) {
