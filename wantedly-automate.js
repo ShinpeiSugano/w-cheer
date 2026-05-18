@@ -899,7 +899,16 @@ async function cheerProject(page, url, send) {
   await cheerButton.click();
   await delay(2000);
 
-  // Facebook シェアリンクを検索（href 優先、なければテキスト/aria-label で探す）
+  // クリック後のモーダル内容をログ
+  const modalText = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('[class*="modal"], [class*="Modal"], [role="dialog"]'))
+      .filter(el => el.offsetHeight > 0 && el.textContent.trim().length > 5)
+      .map(el => el.textContent.trim().slice(0, 150))
+      .slice(0, 3)
+      .join(' || ')
+  ).catch(() => '');
+  send('log', { text: '  ・モーダル内容: ' + (modalText || 'なし') });
+
   send('log', { text: '  ・Facebookシェアボタンを探します' });
   const facebookTarget = await waitForFacebookShareTarget(page, 15000);
 
@@ -913,8 +922,7 @@ async function cheerProject(page, url, send) {
     );
   }
 
-  send('log', { text: '  ・Facebookシェアをクリックします' });
-  // ページ内ボタンをクリックして GraphQL mutation を発火（href を直接開くとチア未登録になる）
+  send('log', { text: '  ・Facebookシェアをクリックします (text=' + facebookTarget.text.slice(0, 40) + ' href=' + facebookTarget.href.slice(0, 60) + ')' });
   await page.mouse.click(facebookTarget.x, facebookTarget.y, { delay: 50 });
   await delay(2000);
   for (const p of await page.browser().pages()) {
@@ -943,11 +951,11 @@ async function findFacebookShareTarget(page) {
   return page.evaluate(() => {
     const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], div, span'));
     const getText = el => (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+    // チアモーダル固有のボタンのみ対象（汎用Facebookリンクは除外）
     const rawTarget = candidates.find(el => getText(el).replace(/\s+/g, '').includes('Facebookで応援')) ||
-      candidates.find(el => getText(el).includes('Facebook') && getText(el).includes('応援')) ||
       candidates.find(el => {
-        const href = el.getAttribute('href') || '';
-        return href.includes('facebook.com') && (href.includes('share') || href.includes('sharer'));
+        const t = getText(el).replace(/\s+/g, '');
+        return t.includes('Facebook') && t.includes('応援') && t.length < 20;
       });
 
     if (!rawTarget) return null;
