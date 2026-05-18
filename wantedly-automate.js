@@ -759,18 +759,19 @@ async function cheerProject(page, url) {
   if (page.url().includes('/signin_or_signup')) {
     throw new Error('未ログイン状態のため、募集ページへ遷移できませんでした');
   }
-  const cheerButton = await page.evaluateHandle(() =>
+
+  const cheerButton = (await page.evaluateHandle(() =>
     Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '応援する')
-  );
-  if (!await page.evaluate(el => el !== null, cheerButton)) return 'not_found';
+  )).asElement();
+  if (!cheerButton) return 'not_found';
 
   await cheerButton.click();
   await delay(2000);
 
-  const facebookButton = await page.evaluateHandle(() =>
+  const facebookButton = (await page.evaluateHandle(() =>
     Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.includes('Facebook') && el.textContent.includes('応援'))
-  );
-  if (!await page.evaluate(el => el !== null, facebookButton)) return 'not_found';
+  )).asElement();
+  if (!facebookButton) return 'not_found';
 
   await facebookButton.click();
   await delay(2000);
@@ -783,13 +784,10 @@ async function cheerProject(page, url) {
   }
 
   await delay(1000);
-  const closeButton = await page.evaluateHandle(() =>
+  const closeButton = (await page.evaluateHandle(() =>
     Array.from(document.querySelectorAll('button, a')).find(el => el.textContent.trim() === '閉じる')
-  );
-
-  if (await page.evaluate(el => el !== null, closeButton)) {
-    await closeButton.click();
-  }
+  )).asElement();
+  if (closeButton) await closeButton.click();
 
   return 'success';
 }
