@@ -864,11 +864,7 @@ async function cheerProject(page, url, send) {
   send('log', { text: '  ・応援するボタンをクリックします' });
   await page.evaluate(el => el.scrollIntoView({ behavior: 'instant', block: 'center' }), cheerButton);
   await delay(300);
-  await withTimeout(
-    page.evaluate(el => el.click(), cheerButton),
-    10000,
-    '応援するボタンのクリックがタイムアウトしました'
-  );
+  await cheerButton.click();
   await delay(2000);
 
   // Facebook シェアリンクを検索（href 優先、なければテキスト/aria-label で探す）
