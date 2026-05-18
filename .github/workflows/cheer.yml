@@ -1,0 +1,36 @@
+name: Wantedly 自動応援
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: '応援URL（カンマ区切りで複数可）'
+        required: true
+        type: string
+
+jobs:
+  cheer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 依存関係をインストール
+        run: npm ci
+
+      - name: Chromium の依存ライブラリをインストール
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2t64 \
+            || sudo apt-get install -y libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2
+
+      - name: 応援を実行
+        env:
+          WANTEDLY_EMAIL: ${{ secrets.WANTEDLY_EMAIL }}
+          WANTEDLY_PASSWORD: ${{ secrets.WANTEDLY_PASSWORD }}
+          WANTEDLY_URLS: ${{ inputs.urls }}
+        run: node run.js
