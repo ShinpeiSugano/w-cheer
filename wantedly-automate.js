@@ -857,7 +857,7 @@ async function cheerProject(page, url, send) {
 
   send('log', { text: '  ・Facebookシェアを開きます' });
   const pagesBeforeFacebookClick = await page.browser().pages();
-  await triggerAsyncClick(page, facebookButton, 'Facebookシェアボタン');
+  await triggerFacebookShareClick(page);
   await waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick, send);
 
   await delay(1000);
@@ -881,23 +881,37 @@ async function cheerProject(page, url, send) {
   return 'success';
 }
 
-async function triggerAsyncClick(page, elementHandle, label) {
-  const clicked = await withTimeout(
-    page.evaluate(el => {
-      setTimeout(() => {
-        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
-        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-        el.click();
-      }, 0);
-      return true;
-    }, elementHandle),
-    3000,
-    label + 'のクリック開始がタイムアウトしました'
-  ).catch(() => false);
+async function triggerFacebookShareClick(page) {
+  const result = await withTimeout(
+    page.evaluate(() => {
+      const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+      const button = candidates.find(el =>
+        el.textContent.includes('Facebook') ||
+        (el.getAttribute('aria-label') || '').includes('Facebook') ||
+        (el.getAttribute('title') || '').includes('Facebook') ||
+        (el.getAttribute('href') || '').includes('facebook.com')
+      );
 
-  if (!clicked) {
-    throw new Error(label + 'のクリック開始に失敗しました');
+      if (!button) {
+        return { ok: false, reason: 'not_found' };
+      }
+
+      const label = (button.textContent || button.getAttribute('aria-label') || button.getAttribute('title') || '').trim();
+      setTimeout(() => {
+        button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
+        button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+        button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+        button.click();
+      }, 0);
+
+      return { ok: true, label };
+    }),
+    3000,
+    'Facebookシェアボタンのクリック開始がタイムアウトしました'
+  ).catch(error => ({ ok: false, reason: error.message }));
+
+  if (!result.ok) {
+    throw new Error('Facebookシェアボタンのクリック開始に失敗しました: ' + (result.reason || 'unknown'));
   }
 }
 
