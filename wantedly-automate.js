@@ -626,11 +626,23 @@ function attachPageDiagnostics(page, send, accountEmail) {
 async function loginWithDiagnostics(page, email, password, send) {
   send('log', { text: '  ・ログイン画面へ移動します' });
   await gotoWantedlyPage(page, 'https://www.wantedly.com/signin_or_signup');
-  send('log', { text: '  ・現在のURL: ' + page.url() });
+  const landedUrl = page.url();
+  const landedTitle = await page.title();
+  send('log', { text: '  ・現在のURL: ' + landedUrl });
+  send('log', { text: '  ・ページタイトル: ' + landedTitle });
   send('log', { text: '  ・メールアドレス入力欄を待機します' });
   await delay(2000);
-  await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 30000 });
-  const emailInput = await page.$('input[type="email"]') || await page.$('input[name="email"]');
+  let emailInput;
+  try {
+    await page.waitForSelector('input[type="email"], input[name="email"]', { timeout: 30000 });
+    emailInput = await page.$('input[type="email"]') || await page.$('input[name="email"]');
+  } catch (err) {
+    const inputs = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('input')).map(el => `type="${el.type}" name="${el.name}" id="${el.id}"`).join(' / ')
+    );
+    send('log', { text: '  ⚠️ 検出されたinput要素: ' + (inputs || 'なし') });
+    throw err;
+  }
   send('log', { text: '  ・メールアドレスを送信します' });
   await emailInput.click({ clickCount: 3 });
   await emailInput.type(email, { delay: 50 });
