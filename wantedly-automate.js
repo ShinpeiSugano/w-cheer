@@ -592,7 +592,7 @@ async function gotoWantedlyPage(page, url) {
   }
 
   await page.waitForFunction(() => document.readyState === 'interactive' || document.readyState === 'complete', {
-    timeout: 10000,
+    timeout: 30000,
   });
 }
 
