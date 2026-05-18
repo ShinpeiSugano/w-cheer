@@ -852,27 +852,19 @@ async function cheerProject(page, url, send) {
 
   // Facebook シェアリンクを検索（href 優先、なければテキスト/aria-label で探す）
   send('log', { text: '  ・Facebookシェアボタンを探します' });
-  const facebookButton = (await withTimeout(
-    page.evaluateHandle(() => {
-      const byHref = document.querySelector('a[href*="facebook.com"]');
-      if (byHref) return byHref;
-      return Array.from(document.querySelectorAll('button, a, [role="button"]')).find(el =>
-        el.textContent.includes('Facebook') ||
-        (el.getAttribute('aria-label') || '').includes('Facebook') ||
-        (el.getAttribute('title') || '').includes('Facebook')
-      );
-    }),
+  const facebookTarget = await withTimeout(
+    findFacebookShareTarget(page),
     10000,
     'Facebookシェアボタンの探索がタイムアウトしました'
-  )).asElement();
+  );
 
-  if (!facebookButton) {
+  if (!facebookTarget) {
     throw new Error('Facebookシェアボタンが見つかりません');
   }
 
   send('log', { text: '  ・Facebookシェアを開きます' });
   const pagesBeforeFacebookClick = await page.browser().pages();
-  await clickElementWithMouse(page, facebookButton, 'Facebookシェアボタン');
+  await openFacebookShareTarget(page, facebookTarget);
   await waitForFacebookTransitionAndClose(page, pagesBeforeFacebookClick, send);
 
   await delay(1000);
@@ -896,20 +888,46 @@ async function cheerProject(page, url, send) {
   return 'success';
 }
 
-async function clickElementWithMouse(page, elementHandle, label) {
-  const box = await withTimeout(
-    elementHandle.boundingBox(),
-    5000,
-    label + 'の位置取得がタイムアウトしました'
-  );
-  if (!box) {
-    throw new Error(label + 'の位置を取得できませんでした');
+async function findFacebookShareTarget(page) {
+  return page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"]'));
+    const target = candidates.find(el =>
+      (el.getAttribute('href') || '').includes('facebook.com')
+    ) || candidates.find(el =>
+      el.textContent.includes('Facebook') ||
+      (el.getAttribute('aria-label') || '').includes('Facebook') ||
+      (el.getAttribute('title') || '').includes('Facebook')
+    );
+
+    if (!target) return null;
+
+    const rect = target.getBoundingClientRect();
+    return {
+      href: target.href || target.getAttribute('href') || '',
+      text: (target.textContent || target.getAttribute('aria-label') || target.getAttribute('title') || '').trim(),
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+}
+
+async function openFacebookShareTarget(page, target) {
+  if (target.href && target.href.includes('facebook.com')) {
+    const facebookPage = await page.browser().newPage();
+    await facebookPage.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    return;
+  }
+
+  if (!target.width || !target.height) {
+    throw new Error('Facebookシェアボタンの位置を取得できませんでした');
   }
 
   await withTimeout(
-    page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { delay: 50 }),
+    page.mouse.click(target.x, target.y, { delay: 50 }),
     5000,
-    label + 'のマウスクリックがタイムアウトしました'
+    'Facebookシェアボタンのマウスクリックがタイムアウトしました'
   );
 }
 
