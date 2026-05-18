@@ -568,7 +568,14 @@ async function setupGraphqlProxy(page, cookieHeaders, send) {
   page.on('request', async request => {
     const url = request.url();
     if (!url.includes('graphql-gateway.wantedly.com')) {
-      try { await request.continue(); } catch {}
+      try {
+        // wantedly.com リクエストにはセッションクッキーを明示的に付与
+        if (url.includes('wantedly.com')) {
+          await request.continue({ headers: { ...request.headers(), cookie: cookieString } });
+        } else {
+          await request.continue();
+        }
+      } catch {}
       return;
     }
     try {
@@ -792,16 +799,19 @@ async function loginWithRetry(page, email, password, send, maxAttempts = 2) {
 }
 
 async function cheerProject(page, url, send) {
-  send('log', { text: '  ・募集ページを開きます' });
-  await withTimeout(
-    gotoWantedlyPage(page, url),
-    45000,
-    '募集ページの読み込みが45秒以内に完了しませんでした'
-  );
-  send('log', { text: '  ・募集ページに到達しました: ' + page.url() });
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    send('log', { text: attempt > 1 ? `  ・募集ページを再読み込みします (${attempt}/3)` : '  ・募集ページを開きます' });
+    await withTimeout(gotoWantedlyPage(page, url), 45000, '募集ページの読み込みが45秒以内に完了しませんでした');
 
-  if (page.url().includes('/signin_or_signup')) {
-    throw new Error('未ログイン状態のため、募集ページへ遷移できませんでした');
+    if (page.url().includes('/signin_or_signup')) {
+      throw new Error('未ログイン状態のため、募集ページへ遷移できませんでした');
+    }
+
+    const bodyText = await page.evaluate(() => (document.body?.innerText || '').slice(0, 200)).catch(() => '');
+    if (!bodyText.includes('403')) break;
+    if (attempt === 3) throw new Error('募集ページが403を返しました（bot判定の可能性）');
+    send('log', { text: '  ⚠️ 403を検出、3秒後にリトライします...' });
+    await delay(3000);
   }
 
   send('log', { text: '  ・応援するボタンを探します' });
