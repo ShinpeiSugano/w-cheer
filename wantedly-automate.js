@@ -888,15 +888,19 @@ async function cheerProject(page, url, send) {
   await page.mouse.click(cheerCoords.x, cheerCoords.y);
   await delay(2000);
 
-  // クリック後のモーダル内容をログ
-  const modalText = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('[class*="modal"], [class*="Modal"], [role="dialog"]'))
-      .filter(el => el.offsetHeight > 0 && el.textContent.trim().length > 5)
-      .map(el => el.textContent.trim().slice(0, 150))
-      .slice(0, 3)
-      .join(' || ')
-  ).catch(() => '');
-  send('log', { text: '  ・モーダル内容: ' + (modalText || 'なし') });
+  // クリック後の状態をログ
+  const afterClickDiag = await page.evaluate(() => {
+    const dialogs = Array.from(document.querySelectorAll('[role="dialog"], [aria-modal="true"]'))
+      .map(el => el.textContent.trim().slice(0, 150));
+    const fbEls = Array.from(document.querySelectorAll('*'))
+      .filter(el => el.children.length === 0 && (el.textContent || '').includes('Facebook'))
+      .map(el => el.textContent.trim())
+      .filter((t, i, arr) => t && arr.indexOf(t) === i)
+      .slice(0, 5);
+    return { url: location.href, dialogs, fbEls };
+  }).catch(() => ({ url: '', dialogs: [], fbEls: [] }));
+  send('log', { text: '  ・dialog: ' + (afterClickDiag.dialogs.join(' || ').slice(0, 200) || 'なし') });
+  send('log', { text: '  ・Facebook要素: ' + (afterClickDiag.fbEls.join(' / ') || 'なし') });
 
   send('log', { text: '  ・Facebookシェアボタンを探します' });
   const facebookTarget = await waitForFacebookShareTarget(page, 15000);
@@ -938,12 +942,13 @@ async function waitForFacebookShareTarget(page, timeoutMs) {
 
 async function findFacebookShareTarget(page) {
   return page.evaluate(() => {
-    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], div, span'));
+    const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], li, div, span'));
     const getText = el => (el.textContent || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+    const norm = t => t.replace(/\s+/g, '');
     // チアモーダル固有のボタンのみ対象（汎用Facebookリンクは除外）
-    const rawTarget = candidates.find(el => getText(el).replace(/\s+/g, '').includes('Facebookで応援')) ||
+    const rawTarget = candidates.find(el => norm(getText(el)).includes('Facebookで応援')) ||
       candidates.find(el => {
-        const t = getText(el).replace(/\s+/g, '');
+        const t = norm(getText(el));
         return t.includes('Facebook') && t.includes('応援') && t.length < 20;
       });
 
