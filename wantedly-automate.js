@@ -570,11 +570,12 @@ async function proxyViaNode(url, method, headers, body, cookieString) {
     data: body || undefined,
     timeout: 20000,
     validateStatus: () => true,
+    responseType: 'arraybuffer',
   });
   return {
     status: res.status,
     contentType: res.headers['content-type'] || 'text/html; charset=utf-8',
-    body: typeof res.data === 'object' ? JSON.stringify(res.data) : String(res.data),
+    body: Buffer.from(res.data),
   };
 }
 
@@ -586,8 +587,8 @@ async function setupGraphqlProxy(page, cookieHeaders, send) {
     const type = request.resourceType();
 
     // ブラウザの TLS フィンガープリントが Cloudflare に弾かれるため
-    // www.wantedly.com への document/xhr/fetch は Node.js 経由でプロキシ
-    if (url.includes('www.wantedly.com') && (type === 'document' || type === 'xhr' || type === 'fetch')) {
+    // www.wantedly.com への画像/メディア以外のリクエストは Node.js 経由でプロキシ
+    if (url.includes('www.wantedly.com') && !['image', 'media', 'font'].includes(type)) {
       try {
         const proxied = await proxyViaNode(url, request.method(), {}, request.postData(), cookieString);
         await request.respond(proxied);
